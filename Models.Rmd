@@ -1,0 +1,275 @@
+---
+title: "Models"
+output: html_document
+date: "2024-04-07"
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+library(tidymodels)
+library(tidymodels)
+library(ISLR2)
+tidymodels_prefer()
+
+set.seed(12345)
+```
+
+```{r}
+data_big33<- read.csv("~/Desktop/data_big33.csv")
+big_data4 <- data_big33 %>%
+  mutate(Nitro_bio = Hogs_total_N + feed_cows_total_N + Dairy_cows_total_N + Beef_cows_total_N,
+         Nitro_synth = diammonium_nitrogen_tons + monammaonium_nitrogen_tons,
+         Nitro_organic = urea_nitrogen_tons + ammonia_nitrogen_tons) %>%
+  mutate(Nitro_bio_organic = Nitro_bio + Nitro_organic)
+
+
+big_data5<-big_data4|>
+  select( !c(`Turkeys`))
+
+big_data_split <- initial_split(big_data5, prop=0.8)
+
+Big_data_train_tbl <- training(big_data_split)
+Big_data_test_tbl <- testing(big_data_split)
+
+
+
+```
+
+```{r}
+Big_data_train_tbl
+
+```
+
+
+```{r}
+Big_data_train_tbl_filtered <- na.omit(Big_data_train_tbl)
+Big_data_test_tbl_filtered <-  na.omit(Big_data_test_tbl)
+```
+
+
+```{r, Soy Beans}
+lasso_model <- 
+  linear_reg(mixture = 1, penalty = tune()) %>% 
+  set_mode("regression") %>% 
+  set_engine("glmnet")
+
+
+lasso_recipe <- recipe(formula = `CORN..GRAIN...YIELD..MEASURED.IN.BU...ACRE` ~ `CATTLE..COWS..BEEF...INVENTORY`+ CATTLE..COWS..MILK...INVENTORY+ Hogs+ Feed_cows+ Year+ CPI+ Value + anom_ind +lfp + Nat_gas_BTU_price + crude_oil_price+ Nitro_organic +Nitro_synth +`Estimated.Value.Per.Acre` +Estimated.Value.Per.Acre, data = Big_data_train_tbl_filtered ) %>%
+  step_dummy(all_nominal_predictors())|>
+  step_zv(all_predictors())|>
+  #step_impute_mean(all_numeric_predictors()) %>% 
+  #step_impute_mode(all_nominal_predictors())|>
+  step_normalize(all_predictors())
+lasso_wf <- workflow() %>% 
+  add_recipe(lasso_recipe) %>% 
+  add_model(lasso_model)
+
+credit_fold <- vfold_cv(Big_data_train_tbl_filtered, v = 10)
+penalty_grid <-grid_regular(penalty(range = c(3, -3)), levels = 30)
+
+tune_res <- tune_grid(
+  lasso_wf,
+  resamples = credit_fold, 
+  grid = penalty_grid,
+  metric = "rmse"
+)
+autoplot(tune_res)
+
+(best_penalty <- select_best(tune_res, metric = "rsq"))
+
+lasso_final_wf <- finalize_workflow(lasso_wf, best_penalty)
+lasso_final_fit <- fit(lasso_final_wf, data = Big_data_train_tbl_filtered)
+
+augment(lasso_final_fit, new_data = Big_data_test_tbl_filtered) %>%
+  rsq(truth = `CORN..GRAIN...YIELD..MEASURED.IN.BU...ACRE`, estimate = .pred)
+
+
+
+library(vip)
+(gg1 <- extract_fit_parsnip(lasso_final_fit) %>%
+  vip()+
+  ylim(0,10))
+```
+
+
+```{r, Soy Beans}
+
+
+library(tidymodels)
+library(vip)
+
+lasso_model <- 
+  linear_reg(penalty = tune()) %>% 
+  set_mode("regression") %>% 
+  set_engine("glmnet")
+
+
+lasso_recipe <- recipe(formula = `CORN..GRAIN...YIELD..MEASURED.IN.BU...ACRE` ~ `CATTLE..COWS..BEEF...INVENTORY`+ CATTLE..COWS..MILK...INVENTORY+ Hogs+ Feed_cows+ Year+ CPI+ Value + anom_ind +lfp + Nat_gas_BTU_price + crude_oil_price+ Nitro_organic +Nitro_synth +`Estimated.Value.Per.Acre` +Estimated.Value.Per.Acre, data = Big_data_train_tbl_filtered ) %>%
+  step_dummy(all_nominal_predictors())|>
+  step_zv(all_predictors())|>  
+  step_normalize(all_predictors())
+
+
+lasso_wf <- workflow() %>% 
+  add_recipe(lasso_recipe) %>% 
+  add_model(lasso_model)
+
+
+credit_fold <- vfold_cv(Big_data_train_tbl_filtered, v = 10)
+
+penalty_grid <- grid_regular(penalty(range = c(3, -3)), levels = 30)
+
+
+tune_res <- tune_grid(
+  lasso_wf,
+  resamples = credit_fold, 
+  grid = penalty_grid,
+  metrics = metric_set(rmse)
+)
+
+
+best_penalty <- select_best(tune_res, metric = "rmse")
+
+lasso_final_wf <- finalize_workflow(lasso_wf, best_penalty)
+
+
+lasso_final_fit <- fit(lasso_final_wf, data = Big_data_train_tbl_filtered)
+
+
+lasso_coef <- pull_workflow_fit(lasso_final_fit) %>%
+  tidy() %>%
+  arrange(desc(abs(estimate)))
+
+
+lasso_coef<- lasso_coef|>
+  filter(term != "(Intercept)")
+# Visualize variable importance
+gg <- ggplot(lasso_coef, aes(x = reorder(term, estimate), y = estimate)) +
+  geom_bar(stat = "identity", fill = "skyblue", color = "black") +
+  coord_flip() +
+  labs(x = "Predictors", y = "Coefficient", title = "LASSO Coefficient Values") +
+  theme_minimal()
+
+# Print the plot
+print(gg)
+
+
+stuff <- tidy(lasso_final_fit)
+
+library(vip)
+(gg1 <- extract_fit_parsnip(lasso_final_fit) %>%
+  vip() +
+  # Add the theming code
+  theme_bw() +
+  ylim(0, 10))
+
+```
+
+
+
+```{r, Sugar Beats}
+lasso_model <- 
+  linear_reg(mixture = 1, penalty = tune()) %>% 
+  set_mode("regression") %>% 
+  set_engine("glmnet")
+
+lasso_recipe <- recipe(formula = `SOYBEANS...YIELD..MEASURED.IN.BU...ACRE` ~ `CATTLE..COWS..BEEF...INVENTORY`+ CATTLE..COWS..MILK...INVENTORY+ Hogs+ Feed_cows+ Year+ CPI+ Value + anom_ind +lfp + Nat_gas_BTU_price + crude_oil_price+ Nitro_organic +Nitro_synth+ `Estimated.Value.Per.Acre`, data = Big_data_train_tbl_filtered ) %>%
+  step_dummy(all_nominal_predictors())|>
+  #step_impute_mean(all_numeric_predictors()) %>% 
+  #step_impute_mode(all_nominal_predictors())|>
+  step_normalize(all_predictors())
+
+lasso_wf <- workflow() %>% 
+  add_recipe(lasso_recipe) %>% 
+  add_model(lasso_model)
+
+credit_fold <- vfold_cv(Big_data_train_tbl_filtered, v = 10)
+penalty_grid <-grid_regular(penalty(range = c(3, -3)), levels = 30)
+
+tune_res <- tune_grid(
+  lasso_wf,
+  resamples = credit_fold, 
+  grid = penalty_grid,
+  metric = "rmse"
+)
+autoplot(tune_res)
+
+(best_penalty <- select_best(tune_res, metric = "rsq"))
+
+lasso_final_wf <- finalize_workflow(lasso_wf, best_penalty)
+lasso_final_fit <- fit(lasso_final_wf, data = Big_data_train_tbl_filtered)
+
+augment(lasso_final_fit, new_data = Big_data_test_tbl_filtered) %>%
+  rsq(truth = `SOYBEANS...YIELD..MEASURED.IN.BU...ACRE`, estimate = .pred)
+
+library(vip)
+(gg1 <- extract_fit_parsnip(lasso_final_fit) %>%
+  vip() +
+  # Add the theming code
+  theme_bw() +
+  ylim(0, 10))
+
+stuff <- tidy(lasso_final_fit)
+
+
+
+lasso_coef<- lasso_coef|>
+  filter(term != "(Intercept)")
+# Visualize variable importance
+gg <- ggplot(lasso_coef, aes(x = reorder(term, estimate), y = estimate)) +
+  geom_bar(stat = "identity", fill = "skyblue", color = "black") +
+  coord_flip() +
+  labs(x = "Predictors", y = "Coefficient", title = "LASSO Coefficient Values") +
+  theme_minimal()
+
+# Print the plot
+print(gg)
+
+```
+
+
+
+```{r, CORN, just add the corn bit}
+lasso_model <- 
+  linear_reg(mixture = 1, penalty = tune()) %>% 
+  set_mode("regression") %>% 
+  set_engine("glmnet")
+
+lasso_recipe <- recipe(formula = `SUGARBEETS...YIELD..MEASURED.IN.TONS...ACRE` ~ `CATTLE..COWS..BEEF...INVENTORY`+ CATTLE..COWS..MILK...INVENTORY+ Hogs+ Feed_cows+ Year+ CPI+ Value + anom_ind +lfp + Nat_gas_BTU_price + crude_oil_price+ Nitro_organic +Nitro_synth, data = Big_data_train_tbl_filtered ) %>%
+  step_dummy(all_nominal_predictors())|>
+  #step_impute_mean(all_numeric_predictors()) %>% 
+  #step_impute_mode(all_nominal_predictors())|>
+  step_normalize(all_predictors())
+
+lasso_wf <- workflow() %>% 
+  add_recipe(lasso_recipe) %>% 
+  add_model(lasso_model)
+
+credit_fold <- vfold_cv(Big_data_train_tbl_filtered, v = 10)
+penalty_grid <-grid_regular(penalty(range = c(3, -3)), levels = 30)
+
+tune_res <- tune_grid(
+  lasso_wf,
+  resamples = credit_fold, 
+  grid = penalty_grid,
+  metric = "rmse"
+)
+autoplot(tune_res)
+
+(best_penalty <- select_best(tune_res, metric = "rsq"))
+
+lasso_final_wf <- finalize_workflow(lasso_wf, best_penalty)
+lasso_final_fit <- fit(lasso_final_wf, data = Big_data_train_tbl_filtered)
+
+augment(lasso_final_fit, new_data = Big_data_test_tbl_filtered) %>%
+  rsq(truth = `SUGARBEETS...YIELD..MEASURED.IN.TONS...ACRE`, estimate = .pred)
+
+library(vip)
+(gg1 <- extract_fit_parsnip(lasso_final_fit) %>%
+  vip() +
+  # Add the theming code
+  theme_bw() +
+  ylim(0, 10))
+
+```
+
