@@ -1,0 +1,22 @@
+---
+title: "Data Wrangling"
+output: html_document
+date: "2024-01-05"
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+library(tidyverse)
+```
+
+```{r}
+bigf<- read_csv('~/Desktop/Weather Data/WeatherFile.csv')
+
+big2<-bigf|>
+  select(avg_wind_dir_deg)
+  
+  
+is.na(big2)
+
+```
+
